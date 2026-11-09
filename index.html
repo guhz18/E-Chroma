@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#06070a" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <title>E·CHROMA — 电子层析谱</title>
+  <meta name="description" content="把 ARPES 三维能谱，展开成一张实空间中的电子层析谱。" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="app">
+    <header class="masthead">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"><span>E</span><i>·</i><span>C</span></div>
+        <div class="brand-text">
+          <h1>电子层析谱</h1>
+          <p>ARPES ELECTRON CHROMATOGRAPH</p>
+        </div>
+      </div>
+
+      <div class="head-sample">
+        <span class="eyebrow">当前样品</span>
+        <strong id="headSample">Bi₂Sr₂CaCu₂O₈₊δ</strong>
+        <span id="headPhase">d-wave superconductor</span>
+      </div>
+
+      <div class="head-actions">
+        <div class="viewswitch" role="group" aria-label="视图模式">
+          <button data-view="both" class="active" title="双联视图">双联</button>
+          <button data-view="2d" title="仅层析谱">层析</button>
+          <button data-view="3d" title="仅电子云">电子云</button>
+        </div>
+        <button class="icon-btn" id="theoryBtn" title="映射原理">原理</button>
+        <button class="icon-btn" id="presentBtn" title="展览模式 (H)">展览</button>
+        <button class="icon-btn accent" id="exportBtn" title="导出当前视图 PNG">导出</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- ── 左栏：数据 ─────────────────────────────────────── -->
+      <aside class="rail rail-left" id="leftRail">
+        <section class="rail-sec">
+          <div class="sec-head"><span>01</span><h3>数据源</h3><em>SOURCE</em></div>
+          <div class="preset-list" id="presetList"></div>
+
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="导入 ARPES 数据">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            <div>
+              <strong>导入实测数据</strong>
+              <span>拖放 .npy / .csv / .json</span>
+            </div>
+            <input type="file" id="fileInput" accept=".npy,.csv,.txt,.tsv,.json" hidden />
+          </div>
+        </section>
+
+        <section class="rail-sec">
+          <div class="sec-head"><span>02</span><h3>能量窗口</h3><em>Eb WINDOW</em></div>
+          <div class="dual" id="energyDual">
+            <div class="dual-track"><div class="dual-fill" id="energyFill"></div></div>
+            <input type="range" id="energyLo" min="0" max="1000" value="0" aria-label="能量下限" />
+            <input type="range" id="energyHi" min="0" max="1000" value="1000" aria-label="能量上限" />
+          </div>
+          <div class="dual-labels">
+            <span><em>Eb,min</em> <b id="energyLoVal">0.00 eV</b></span>
+            <span><em>Eb,max</em> <b id="energyHiVal">0.95 eV</b></span>
+          </div>
+          <p class="hint">只让落在窗口内的电子参与层析，可见光谱在窗口内重新展开。默认窗口自动裁掉了高束缚能端的空态。</p>
+        </section>
+
+        <section class="rail-sec rail-legend">
+          <div class="sec-head"><span>—</span><h3>读图</h3><em>READING</em></div>
+          <p class="sample-blurb" id="sampleBlurb">d 波能隙在节点处闭合，低能电子只沿四个对角方向逃逸。</p>
+          <div class="legend-list">
+            <div><i class="lg light"></i><span>亮度 / 密度</span><em>I(Kx, Ky, Eb)</em></div>
+            <div><i class="lg angle"></i><span>方位角</span><em>θ = atan2(Ky, Kx)</em></div>
+            <div><i class="lg radius"></i><span>保留半径</span><em>r ∝ ρ(Eb)</em></div>
+            <div><i class="lg dark"></i><span>暗河 / 缺口</span><em>禁戒态 · 空态</em></div>
+          </div>
+          <div class="spec-strip"><span>E<sub>F</sub></span><i></i><span>深束缚</span></div>
+        </section>
+
+        <section class="rail-sec">
+          <div class="sec-head"><span>03</span><h3>数据集</h3><em>DATASET</em></div>
+          <dl class="dataset">
+            <div><dt>名称</dt><dd id="dsName">Bi2212</dd></div>
+            <div><dt>网格</dt><dd id="dsDims">150 × 150 × 180</dd></div>
+            <div><dt>Kx × Ky</dt><dd id="dsK">−1.00 … 1.00 Å⁻¹</dd></div>
+            <div><dt>Eb</dt><dd id="dsE">0.00 … 0.95 eV</dd></div>
+            <div><dt>有效体素</dt><dd id="dsCount">—</dd></div>
+          </dl>
+          <p class="hint">合成能谱由紧束缚色散 + 谱函数 + 矩阵元构成，用于演示与调参。导入实测数据后，同一套映射即刻生效。</p>
+        </section>
+
+      </aside>
+
+      <!-- ── 中央：图版 ─────────────────────────────────────── -->
+      <section class="stage" id="stage">
+        <article class="panel panel-2d" id="panel2d">
+          <header class="fig-head">
+            <div class="fig-id"><span>图版 I</span><em>PLATE I</em></div>
+            <h2>电子层析谱</h2>
+            <p>Eb → 可见光 · I → 光强 · (Kx, Ky) → 实空间方位</p>
+          </header>
+          <div class="plate-wrap" id="plateWrap">
+            <div class="plate" id="plate">
+              <canvas id="chromaCanvas"></canvas>
+              <div class="plate-vignette" aria-hidden="true"></div>
+              <div class="plate-tag tl">K∥ → r</div>
+              <div class="plate-tag br" id="plateTag">r = R[(1−s)κ + sρ]</div>
+            </div>
+          </div>
+          <footer class="fig-foot">
+            <span id="caption2d">Bi2212 · d-wave · 电子层析谱</span>
+            <span class="foot-right" id="meta2d">—</span>
+          </footer>
+        </article>
+
+        <article class="panel panel-3d" id="panel3d">
+          <header class="fig-head">
+            <div class="fig-id"><span>图版 II</span><em>PLATE II</em></div>
+            <h2>光电子云</h2>
+            <p>pulse → 光电子发射 → 飞行 t = 1 后的真空实空间</p>
+          </header>
+          <div class="cloud-wrap" id="cloudWrap">
+            <canvas id="cloudCanvas"></canvas>
+            <div class="cloud-ui">
+              <div class="cloud-badge"><i></i> PHOTOEMISSION FRAME</div>
+              <div class="cloud-readout">
+                <span>t</span><b id="cloudT">1.00</b><em>ħ = 1</em>
+              </div>
+              <div class="cloud-axis" aria-hidden="true">
+                <span class="ax x">Kx</span><span class="ax y">Ky</span><span class="ax z">z</span>
+              </div>
+            </div>
+          </div>
+          <footer class="fig-foot">
+            <span id="caption3d">Bi2212 · 光电子云 · t = 1</span>
+            <span class="foot-right" id="meta3d">—</span>
+          </footer>
+        </article>
+      </section>
+
+      <!-- ── 右栏：参数 ─────────────────────────────────────── -->
+      <aside class="rail rail-right" id="rightRail">
+        <section class="rail-sec">
+          <div class="sec-head"><span>04</span><h3>二维色标</h3><em>Eb × INTENSITY</em></div>
+          <div class="cbar-box">
+            <canvas id="cbarCanvas"></canvas>
+            <div class="cbar-corner">I</div>
+          </div>
+          <div class="cbar-axis"><span id="cbarEbLo">0.00</span><span>Eb / eV</span><span id="cbarEbHi">0.95</span></div>
+          <div class="cmap-row" id="cmapRow"></div>
+        </section>
+
+        <section class="rail-sec rail-params">
+          <div class="sec-head"><span>05</span><h3>渲染参数</h3><em>PARAMETERS</em></div>
+          <div class="param-tabs" id="paramTabs" role="tablist">
+            <button type="button" data-pane="2d" class="active" role="tab">电子层析</button>
+            <button type="button" data-pane="3d" role="tab">光电子云</button>
+          </div>
+
+          <div class="param-pane active" id="pane2d" role="tabpanel">
+            <div class="ctl">
+              <label for="sep">径向分离 <em>separation</em></label><output id="sepOut">0.86</output>
+              <input type="range" id="sep" min="0" max="1" step="0.01" value="0.86" />
+            </div>
+            <div class="ctl">
+              <label for="twist">旋臂 <em>spiral</em></label><output id="twistOut">0.16</output>
+              <input type="range" id="twist" min="-1" max="1" step="0.01" value="0.16" />
+            </div>
+            <div class="ctl">
+              <label for="diffusion">扩散宽度 <em>diffusion</em></label><output id="diffOut">0.80</output>
+              <input type="range" id="diffusion" min="0" max="3" step="0.01" value="0.8" />
+            </div>
+            <div class="ctl">
+              <label for="streak">颜料拖尾 <em>streak</em></label><output id="streakOut">1.00</output>
+              <input type="range" id="streak" min="0" max="3" step="0.01" value="1" />
+            </div>
+            <div class="ctl">
+              <label for="exposure2d">曝光 <em>exposure</em></label><output id="exp2dOut">1.30</output>
+              <input type="range" id="exposure2d" min="0.2" max="3" step="0.01" value="1.3" />
+            </div>
+            <div class="ctl">
+              <label for="density2d">电子数 <em>samples</em></label><output id="dens2dOut">460k</output>
+              <input type="range" id="density2d" min="80000" max="700000" step="10000" value="460000" />
+            </div>
+
+            <div class="field">
+              <span class="field-label">底色 <em>background</em></span>
+              <div class="seg" id="bgSeg">
+                <button data-bg="void" class="active">深空</button>
+                <button data-bg="solid">纯色</button>
+                <button data-bg="paper">纸白</button>
+              </div>
+            </div>
+            <div class="field inline">
+              <label class="color-field"><input type="color" id="bgColor" value="#06070a" /><span>自定义底色</span></label>
+              <label class="switch"><input type="checkbox" id="frameToggle" checked /><i></i><span>圆形标尺</span></label>
+            </div>
+            <div class="field">
+              <span class="field-label">晶格背景 <em>lattice</em></span>
+              <div class="select-wrap">
+                <select id="latticeSel">
+                  <option value="none">无</option>
+                  <option value="square" selected>方格 · 四方</option>
+                  <option value="hex">六角 · 三角</option>
+                  <option value="honeycomb">蜂窝 · 石墨烯</option>
+                </select>
+              </div>
+            </div>
+            <div class="ctl">
+              <label for="latticeOpacity">晶格可见度 <em>lattice opacity</em></label><output id="latOut">0.30</output>
+              <input type="range" id="latticeOpacity" min="0" max="1" step="0.01" value="0.3" />
+            </div>
+            <div class="btn-row">
+              <button class="btn" id="replay2d"><span>↻</span> 重放液滴</button>
+              <button class="btn" id="export2d">导出图版</button>
+            </div>
+          </div>
+
+          <div class="param-pane" id="pane3d" role="tabpanel">
+            <div class="ctl">
+              <label for="flight">飞行时间 <em>t</em></label><output id="flightOut">1.00</output>
+              <input type="range" id="flight" min="0.35" max="2" step="0.01" value="1" />
+            </div>
+            <div class="ctl">
+              <label for="cone">发射角 <em>acceptance</em></label><output id="coneOut">38°</output>
+              <input type="range" id="cone" min="18" max="62" step="1" value="38" />
+            </div>
+            <div class="ctl">
+              <label for="density3d">电子数 <em>samples</em></label><output id="dens3dOut">340k</output>
+              <input type="range" id="density3d" min="50000" max="420000" step="10000" value="340000" />
+            </div>
+            <div class="ctl">
+              <label for="pointSize">光点大小 <em>point size</em></label><output id="psizeOut">1.50</output>
+              <input type="range" id="pointSize" min="0.4" max="3" step="0.01" value="1.5" />
+            </div>
+            <div class="ctl">
+              <label for="exposure3d">曝光 <em>exposure</em></label><output id="exp3dOut">0.70</output>
+              <input type="range" id="exposure3d" min="0.2" max="3" step="0.01" value="0.7" />
+            </div>
+            <div class="field inline">
+              <label class="switch"><input type="checkbox" id="rotateToggle" checked /><i></i><span>自动旋转</span></label>
+              <label class="switch"><input type="checkbox" id="gridToggle" checked /><i></i><span>样品台网格</span></label>
+            </div>
+            <div class="btn-row">
+              <button class="btn" id="replay3d"><span>↻</span> 重放脉冲</button>
+              <button class="btn" id="export3d">导出图版</button>
+            </div>
+            <p class="hint">三维图景是光电子在真空中的飞行快照：pulse 打入后飞行 t = 1，能量决定半径，|K| 决定发射角。</p>
+          </div>
+        </section>
+
+        <section class="rail-sec rail-note">
+          <p>数据在浏览器内处理，不会上传。支持 3D <code>.npy</code> 数组与长表 CSV。</p>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span><i class="dot"></i> <b id="statusLabel">就绪</b></span>
+      <span id="statusDetail">合成 ARPES 体数据 · 150 × 150 × 180</span>
+      <span class="status-right">E·CHROMA / v1.0</span>
+    </footer>
+  </div>
+
+  <!-- 导入对话框 -->
+  <dialog class="modal" id="importModal">
+    <form method="dialog" class="modal-card" id="importForm">
+      <header>
+        <span class="eyebrow">IMPORT</span>
+        <h2>导入 ARPES 体数据</h2>
+        <p id="importFileMeta">—</p>
+      </header>
+      <div class="modal-body">
+        <label class="form-row">
+          <span>轴顺序</span>
+          <select id="axisOrder">
+            <option value="e-y-x">Eb · Ky · Kx（常见）</option>
+            <option value="x-y-e">Kx · Ky · Eb</option>
+            <option value="y-x-e">Ky · Kx · Eb</option>
+          </select>
+        </label>
+        <div class="form-grid">
+          <label><span>Kx min</span><input type="number" id="kxMin" value="-1" step="any" /></label>
+          <label><span>Kx max</span><input type="number" id="kxMax" value="1" step="any" /></label>
+          <label><span>Ky min</span><input type="number" id="kyMin" value="-1" step="any" /></label>
+          <label><span>Ky max</span><input type="number" id="kyMax" value="1" step="any" /></label>
+          <label><span>Eb min (eV)</span><input type="number" id="ebMin" value="0" step="any" /></label>
+          <label><span>Eb max (eV)</span><input type="number" id="ebMax" value="1.6" step="any" /></label>
+        </div>
+        <p class="hint">3D 数组会按所选轴顺序重排为 I(Eb, Ky, Kx)。缺失体素按 0 处理；强度会自动做稳健归一化。</p>
+      </div>
+      <footer>
+        <button value="cancel" class="btn">取消</button>
+        <button value="load" class="btn btn-primary" id="confirmImport">载入数据</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 原理 -->
+  <dialog class="modal modal-wide" id="theoryModal">
+    <div class="modal-card theory">
+      <header>
+        <span class="eyebrow">MAPPING</span>
+        <h2>一张能谱，如何变成一滴层析液</h2>
+      </header>
+      <div class="theory-grid">
+        <div>
+          <h3><i>01</i> 能量 → 颜色</h3>
+          <p>把整个 Eb 窗口线性映射到 380–700 nm 的可见光波段。深束缚态与浅束缚态因此获得不同的“颜料”。色标可以替换为余烬、极光、冰川等艺术色图，但能量顺序保持不变。</p>
+          <p class="eq">λ = 380 + 320 · (Eb − E<sub>min</sub>) / (E<sub>max</sub> − E<sub>min</sub>)</p>
+        </div>
+        <div>
+          <h3><i>02</i> 动量 → 方位与保留距离</h3>
+          <p>每个电子从注入点出发。它的面内动量方向 (Kx, Ky) 决定飞散方位，能量决定它在“层析纸”上跑多远——低结合能跑得快，高结合能留在近处。|K| 的细微差异再把等能面揉成波纹。</p>
+          <p class="eq">θ = atan2(Ky, Kx) + τ · ρ<br />r = R [ (1−s)·κ + s·ρ(Eb) ]</p>
+        </div>
+        <div>
+          <h3><i>03</i> 强度 → 光</h3>
+          <p>I(Kx, Ky, Eb) 是电子出现的概率。它被编码为点的密度、亮度与尺寸。被禁止的量子态没有强度，于是层析谱上留下暗的河道与缺口；这些缺口随能量变化，构成材料独有的指纹。</p>
+          <p class="eq">L = I<sup>γ</sup> · exposure, α = 1 − e<sup>−L</sup></p>
+        </div>
+        <div>
+          <h3><i>04</i> 飞行 → 三维电子云</h3>
+          <p>三维图景改为泵浦—探测：一束超短脉冲把电子从样品表面打出，光电子在真空中自由飞行 t = 1。飞行距离由动能决定，发射角由 |K| 决定。每一层能量是一个发光的球冠，叠在一起就是电子云。</p>
+          <p class="eq">r = v t, v ∝ √(E<sub>kin</sub>), α = α<sub>max</sub> · |K|</p>
+        </div>
+      </div>
+      <div class="theory-foot">
+        <p>这是一个科学可视化与艺术渲染程序，不是第一性原理计算。合成样品用于展示映射；导入实测数据后，图像会如实反映测量到的强度分布。</p>
+        <button class="btn btn-primary" id="theoryClose">回到谱图</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+  <button class="present-exit" id="presentExit">退出展览 · ESC</button>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
